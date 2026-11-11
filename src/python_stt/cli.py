@@ -3,7 +3,7 @@
 import typer
 
 from python_stt import __version__
-from python_stt.commands import transcribe
+from python_stt.commands import config, help, transcribe
 
 app = typer.Typer(
     name="stt",
@@ -11,7 +11,9 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+app.command("config")(config.config)
 app.command("transcribe")(transcribe.transcribe)
+app.command("help")(help.show_help)
 
 
 def _version_callback(value: bool) -> None:
