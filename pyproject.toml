@@ -7,8 +7,18 @@ license = { file = "LICENSE" }
 authors = [{ name = "Breno Filgueiras", email = "breno.fil.costa@gmail.com" }]
 requires-python = ">=3.11"
 dependencies = [
+    "faster-whisper>=1.0.0",
+    "httpx>=0.27.0",
+    "jinja2>=3.1.0",
+    "python-dotenv>=1.0",
+    "rich>=13",
     "typer>=0.12",
 ]
+
+[project.optional-dependencies]
+# Whisper on PyTorch (e.g. AMD GPUs via ROCm). PyTorch itself is installed separately, because
+# the right build depends on the hardware (see Dockerfile / README).
+gpu = ["transformers>=4.56"]
 
 [project.scripts]
 stt = "python_stt.cli:app"

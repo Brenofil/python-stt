@@ -1,9 +1,17 @@
 """Typer application entry point. Sub-commands live in `python_stt.commands`."""
 
+from pathlib import Path
+
 import typer
+from dotenv import load_dotenv
 
 from python_stt import __version__
 from python_stt.commands import config, help, transcribe
+
+# Load settings (e.g. HF_TOKEN) from a .env file. The current directory wins, then the project
+# root (works for editable installs). Variables already set in the shell are never overridden.
+load_dotenv(Path.cwd() / ".env")
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 app = typer.Typer(
     name="stt",

@@ -1,0 +1,41 @@
+# Usage (from the project root):
+#   docker compose run --rm stt-rocm transcribe /data/media/file.mp4 --engine transformers --model large-v3
+#   docker compose run --rm stt-cpu  transcribe /data/media/file.mp4 --model small --compute-type int8
+# Put input files in ./media; transcripts are written to ./transcripts.
+services:
+  stt-rocm:
+    build:
+      context: .
+      dockerfile: Dockerfile.rocm
+    image: python-stt:rocm
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+      - render
+    security_opt:
+      - seccomp=unconfined
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./media:/data/media
+      - ./transcripts:/data/transcripts
+      - hf-cache:/cache/hf
+
+  stt-cpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: python-stt:cpu
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./media:/data/media
+      - ./transcripts:/data/transcripts
+      - hf-cache:/cache/hf
+
+volumes:
+  hf-cache:
