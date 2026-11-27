@@ -158,7 +158,7 @@ docker compose run --rm stt-cpu transcribe /data/media/file.mp4 --model small --
 docker compose run --rm stt-rocm transcribe /data/media/file.mp4 --engine transformers --model large-v3
 ```
 
-`Dockerfile.rocm` sets `HSA_OVERRIDE_GFX_VERSION=11.0.0` so the RX 7600 (gfx1102) uses the gfx1100 kernels. It is a safety net, so remove it if your GPU is detected without it. The model cache lives in the `hf-cache` volume, and `HF_TOKEN` is read from `.env` when present. The user running Docker must have access to `/dev/kfd` and `/dev/dri` (groups `video` and `render`).
+`Dockerfile.rocm` sets `HSA_OVERRIDE_GFX_VERSION=11.0.0` so the RX 7600 (gfx1102) uses the gfx1100 kernels. It is a safety net, so remove it if your GPU is detected without it. The model cache lives in the `hf-cache` volume, and `HF_TOKEN` is read from `.env` when present. The container runs as root, so it can open the GPU devices without extra groups (named groups such as `render` do not exist inside the image, and listing them in compose makes Docker fail).
 
 **Batch mode** reads a list file that compose mounts read-only at `/data/urls.txt`. `urls.txt` is git-ignored: copy [`urls.example.txt`](urls.example.txt) to `urls.txt` and edit it. To keep the list outside the repository, set `URLS_FILE` (shell or `.env`) to its path on the host:
 
@@ -167,7 +167,7 @@ cp urls.example.txt urls.txt           # or: export URLS_FILE=/home/you/private/
 docker compose run --rm stt-rocm transcribe --input-file /data/urls.txt --engine transformers --model large-v3 --language pt
 ```
 
-Make sure the file exists before running. Compose is configured not to create it, but behaviour for a missing bind source can vary between Docker versions.
+The list file must exist before **any** `docker compose run`, even for commands that don't use it, because compose mounts it into every container. On Linux, compose stops with "bind source path does not exist" if it is missing. (Docker Desktop on macOS may instead create an empty directory with that name, so check it is a file.)
 
 ### Uploading transcripts to Google Drive (unattended runs)
 
