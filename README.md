@@ -158,7 +158,7 @@ docker compose run --rm stt-cpu transcribe /data/media/file.mp4 --model small --
 docker compose run --rm stt-rocm transcribe /data/media/file.mp4 --engine transformers --model large-v3
 ```
 
-`Dockerfile.rocm` sets `HSA_OVERRIDE_GFX_VERSION=11.0.0` so the RX 7600 (gfx1102) uses the gfx1100 kernels. It is a safety net, so remove it if your GPU is detected without it. The model cache lives in the `hf-cache` volume, and `HF_TOKEN` is read from `.env` when present. The container runs as root, so it can open the GPU devices without extra groups (named groups such as `render` do not exist inside the image, and listing them in compose makes Docker fail).
+The image sets no `HSA_OVERRIDE_GFX_VERSION`: the PyTorch ROCm wheels include native kernels for the RX 7600 (gfx1102), and forcing a different version made the GPU crash with `HSA_STATUS_ERROR_INVALID_ISA`. Check your card is listed with `docker compose run --rm --entrypoint python stt-rocm -c "import torch; print(torch.cuda.get_arch_list())"`; only if it is not, pass `-e HSA_OVERRIDE_GFX_VERSION=<version>` at run time. The model cache lives in the `hf-cache` volume, and `HF_TOKEN` is read from `.env` when present. The container runs as root, so it can open the GPU devices without extra groups (named groups such as `render` do not exist inside the image, and listing them in compose makes Docker fail).
 
 **Batch mode** reads a list file that compose mounts read-only at `/data/urls.txt`. `urls.txt` is git-ignored: copy [`urls.example.txt`](urls.example.txt) to `urls.txt` and edit it. To keep the list outside the repository, set `URLS_FILE` (shell or `.env`) to its path on the host:
 

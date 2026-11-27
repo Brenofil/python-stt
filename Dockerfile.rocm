@@ -23,9 +23,10 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 RUN uv pip install --system --no-cache ".[gpu]"
 
-# RX 7600 is gfx1102 (RDNA3). Prebuilt kernels target gfx1100, which is binary compatible.
-ENV HSA_OVERRIDE_GFX_VERSION=11.0.0 \
-    HF_HOME=/cache/hf \
+# No HSA_OVERRIDE_GFX_VERSION: the PyTorch ROCm wheels ship native gfx1102 (RX 7600) kernels, and
+# forcing 11.0.0 made the GPU reject the code (HSA_STATUS_ERROR_INVALID_ISA). Pass
+# `-e HSA_OVERRIDE_GFX_VERSION=...` at run time only for cards the wheels do not list.
+ENV HF_HOME=/cache/hf \
     RCLONE_CONFIG=/config/rclone/rclone.conf
 
 WORKDIR /data
