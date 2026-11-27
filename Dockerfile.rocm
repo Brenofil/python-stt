@@ -15,6 +15,13 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 RUN uv pip install --system --no-cache \
     --index-url https://download.pytorch.org/whl/rocm${ROCM_VERSION} torch
 
+# PDF export (WeasyPrint): Pango for layout, DejaVu/Liberation for text incl. accents.
+# Kept after the torch layer so changing it does not re-download PyTorch.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 \
+       fonts-dejavu-core fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
 # rclone uploads finished transcripts (see --upload-to)
 COPY --from=rclone/rclone:latest /usr/local/bin/rclone /usr/local/bin/rclone
 

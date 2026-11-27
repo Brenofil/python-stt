@@ -18,6 +18,14 @@ def _no_real_model(monkeypatch):
     monkeypatch.setattr(Transcriber, "load", MagicMock())
 
 
+@pytest.fixture(autouse=True)
+def _no_real_pdf(monkeypatch):
+    """CLI tests must not depend on Pango being installed; PDF rendering has its own tests."""
+    from python_stt.commands import transcribe as cmd
+
+    monkeypatch.setattr(cmd, "generate_pdf_report", lambda p: p.with_suffix(".pdf"))
+
+
 def test_version():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
@@ -204,7 +212,13 @@ def test_batch_uploads_each_report_right_after_generation(monkeypatch, tmp_path:
     )
 
     assert result.exit_code == 0
-    assert uploaded == [("a.html", "gd:dir"), ("b.html", "gd:dir")]
+    # Each item uploads its HTML and its PDF, in order, as soon as it is done.
+    assert uploaded == [
+        ("a.html", "gd:dir"),
+        ("a.pdf", "gd:dir"),
+        ("b.html", "gd:dir"),
+        ("b.pdf", "gd:dir"),
+    ]
 
 
 def test_failed_upload_keeps_file_and_exits_nonzero(monkeypatch, tmp_path: Path):
@@ -237,3 +251,61 @@ def test_unreachable_upload_destination_aborts_before_loading_model(monkeypatch,
     assert result.exit_code == 1
     assert "Cannot use upload destination" in result.output
     Transcriber.load.assert_not_called()
+
+
+def test_pdf_is_generated_and_uploaded_with_html(monkeypatch, tmp_path: Path):
+    from python_stt.commands import transcribe as cmd
+
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"dummy")
+    monkeypatch.setattr(Transcriber, "transcribe", MagicMock(return_value=_mock_result("v.mp4")))
+    monkeypatch.setattr(cmd, "generate_pdf_report", lambda p: p.with_suffix(".pdf"))
+    uploaded = _fake_rclone(monkeypatch)
+
+    result = runner.invoke(
+        app, ["transcribe", str(video), "-o", str(tmp_path / "v.html"), "--upload-to", "gd:"]
+    )
+
+    assert result.exit_code == 0
+    assert "PDF Output" in result.output
+    assert [name for name, _ in uploaded] == ["v.html", "v.pdf"]
+
+
+def test_no_pdf_flag_skips_pdf(monkeypatch, tmp_path: Path):
+    from python_stt.commands import transcribe as cmd
+
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"dummy")
+    monkeypatch.setattr(Transcriber, "transcribe", MagicMock(return_value=_mock_result("v.mp4")))
+    called = MagicMock()
+    monkeypatch.setattr(cmd, "generate_pdf_report", called)
+
+    result = runner.invoke(
+        app, ["transcribe", str(video), "-o", str(tmp_path / "v.html"), "--no-pdf"]
+    )
+
+    assert result.exit_code == 0
+    called.assert_not_called()
+
+
+def test_pdf_failure_keeps_html_still_uploads_it_and_exits_nonzero(monkeypatch, tmp_path: Path):
+    from python_stt.commands import transcribe as cmd
+    from python_stt.core.pdf_generator import PdfError
+
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"dummy")
+    out = tmp_path / "v.html"
+    monkeypatch.setattr(Transcriber, "transcribe", MagicMock(return_value=_mock_result("v.mp4")))
+
+    def broken(path):
+        raise PdfError("no pango")
+
+    monkeypatch.setattr(cmd, "generate_pdf_report", broken)
+    uploaded = _fake_rclone(monkeypatch)
+
+    result = runner.invoke(app, ["transcribe", str(video), "-o", str(out), "--upload-to", "gd:"])
+
+    assert result.exit_code == 1
+    assert "PDF not generated" in result.output
+    assert out.exists()
+    assert [name for name, _ in uploaded] == ["v.html"]

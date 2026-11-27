@@ -21,6 +21,7 @@ from rich.progress import (
 from python_stt.core.downloader import is_url, resolve_media_source
 from python_stt.core.html_generator import generate_html_report
 from python_stt.core.models import TranscriptionResult
+from python_stt.core.pdf_generator import PdfError, generate_pdf_report
 from python_stt.core.transcriber import Transcriber
 from python_stt.core.uploader import UploadError, check_destination, upload_file
 
@@ -35,6 +36,8 @@ class _Outcome:
     name: str
     result: TranscriptionResult | None = None
     output_path: Path | None = None
+    pdf_path: Path | None = None
+    pdf_failed: bool = False
     upload_failed: bool = False
 
     @property
@@ -120,6 +123,7 @@ def _process_source(
     transcriber: Transcriber,
     language: str | None,
     upload_to: str | None = None,
+    make_pdf: bool = True,
 ) -> _Outcome:
     """Transcribe one source. Errors are reported to stderr and returned, never raised."""
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -159,16 +163,27 @@ def _process_source(
             return _Outcome(name=display_name)
 
         outcome = _Outcome(name=display_name, result=result, output_path=generated_file)
-        if upload_to:
-            # The report is uploaded right away so finished work is safe if a later item fails.
+        if make_pdf:
+            # A PDF problem never costs us the HTML: it is already written at this point.
             try:
-                remote = upload_file(generated_file, upload_to)
-                typer.echo(f"Uploaded to '{remote}'.")
-            except UploadError as e:
-                typer.secho(
-                    f"Upload failed (file kept locally): {e}", fg=typer.colors.RED, err=True
-                )
-                outcome.upload_failed = True
+                outcome.pdf_path = generate_pdf_report(generated_file)
+                typer.echo(f"Generated PDF at '{outcome.pdf_path}'.")
+            except PdfError as e:
+                typer.secho(f"PDF not generated (HTML kept): {e}", fg=typer.colors.RED, err=True)
+                outcome.pdf_failed = True
+        if upload_to:
+            # Reports are uploaded right away so finished work is safe if a later item fails.
+            for path in (generated_file, outcome.pdf_path):
+                if path is None:
+                    continue
+                try:
+                    remote = upload_file(path, upload_to)
+                    typer.echo(f"Uploaded to '{remote}'.")
+                except UploadError as e:
+                    typer.secho(
+                        f"Upload failed (file kept locally): {e}", fg=typer.colors.RED, err=True
+                    )
+                    outcome.upload_failed = True
         return outcome
 
 
@@ -189,6 +204,9 @@ def _print_summary(outcomes: list[_Outcome]) -> None:
 
     succeeded = sum(o.ok for o in outcomes)
     typer.echo(f"{succeeded} succeeded, {len(outcomes) - succeeded} failed.")
+    pdf_failures = sum(o.pdf_failed for o in outcomes)
+    if pdf_failures:
+        typer.secho(f"{pdf_failures} PDF(s) could not be generated.", fg=typer.colors.RED)
     upload_failures = sum(o.upload_failed for o in outcomes)
     if upload_failures:
         typer.secho(f"{upload_failures} upload(s) failed.", fg=typer.colors.RED)
@@ -266,14 +284,21 @@ def transcribe(
             ),
         ),
     ] = "faster-whisper",
+    pdf: Annotated[
+        bool,
+        typer.Option(
+            "--pdf/--no-pdf",
+            help="Also write a PDF next to each HTML report (same name, .pdf).",
+        ),
+    ] = True,
     upload_to: Annotated[
         str | None,
         typer.Option(
             "--upload-to",
             envvar="STT_UPLOAD_TO",
             help=(
-                "rclone destination (e.g. 'gdrive:stt-transcripts'). Each HTML report is "
-                "uploaded right after it is generated. Requires rclone to be configured."
+                "rclone destination (e.g. 'gdrive:stt-transcripts'). Each report (HTML and "
+                "PDF) is uploaded right after it is generated. Requires rclone configured."
             ),
         ),
     ] = None,
@@ -317,19 +342,21 @@ def transcribe(
         if batch:
             typer.echo(f"\n[{index}/{len(sources)}] {item}")
         outcomes.append(
-            _process_source(item, output, batch, used_outputs, transcriber, language, upload_to)
+            _process_source(
+                item, output, batch, used_outputs, transcriber, language, upload_to, pdf
+            )
         )
 
     if batch:
         _print_summary(outcomes)
-        if not all(o.ok and not o.upload_failed for o in outcomes):
+        if not all(o.ok and not o.upload_failed and not o.pdf_failed for o in outcomes):
             raise typer.Exit(code=1)
         return
 
     outcome = outcomes[0]
     if outcome.result is None or outcome.output_path is None:
         raise typer.Exit(code=1)
-    upload_failed = outcome.upload_failed
+    problem = outcome.upload_failed or outcome.pdf_failed
 
     result = outcome.result
     typer.secho(
@@ -337,8 +364,9 @@ def transcribe(
         f"  - Detected Language: {result.language} ({result.language_probability * 100:.1f}%)\n"
         f"  - Duration: {result.duration_formatted}\n"
         f"  - Segments: {len(result.segments)}\n"
-        f"  - HTML Output: {outcome.output_path.resolve()}",
+        f"  - HTML Output: {outcome.output_path.resolve()}"
+        + (f"\n  - PDF Output: {outcome.pdf_path.resolve()}" if outcome.pdf_path else ""),
         fg=typer.colors.GREEN,
     )
-    if upload_failed:
+    if problem:
         raise typer.Exit(code=1)

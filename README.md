@@ -1,6 +1,6 @@
 # python-stt
 
-Speech-to-text command line application built with [Typer](https://typer.tiangolo.com/). It transcribes audio/video (local file or public URL) with [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and generates an HTML transcript.
+Speech-to-text command line application built with [Typer](https://typer.tiangolo.com/). It transcribes audio/video (local file or public URL) with [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and generates an HTML transcript and a PDF copy of it.
 
 ## Requirements
 
@@ -49,6 +49,17 @@ stt --help
 ```
 
 To remove it: `uv tool uninstall python-stt`. If `stt` is not found after installing, run `uv tool update-shell` and restart your shell.
+
+## PDF export
+
+Every transcript is also saved as a PDF next to the HTML (`transcripts/<name>.html` and `transcripts/<name>.pdf`). Disable it with `--no-pdf`. PDFs are rendered with [WeasyPrint](https://weasyprint.org/), which needs the Pango library on the OS. The Docker images include it. For a local install:
+
+```bash
+sudo apt install libpango-1.0-0 libpangoft2-1.0-0 fonts-dejavu-core   # Debian/Ubuntu
+brew install pango                                                  # macOS (Homebrew)
+```
+
+On macOS, if the import still fails, run with `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`. If Pango is missing the HTML is still written, the PDF is skipped with a clear message, and the exit code is 1.
 
 ## Hugging Face token (optional)
 
@@ -123,7 +134,8 @@ All transcripts are saved to `transcripts/` (or the directory given with `--outp
 | `--device NAME` | | `auto` | `auto`, `cpu` or `cuda`. |
 | `--compute-type TYPE` | | `default` | `default`, `int8`, `float16` or `float32`. |
 | `--engine NAME` | | `faster-whisper` | `faster-whisper` (CPU/NVIDIA) or `transformers` (PyTorch, for AMD GPUs via ROCm). |
-| `--upload-to DEST` | | none | rclone destination (e.g. `gdrive:stt-transcripts`). Uploads each report right after it is generated. Also read from `STT_UPLOAD_TO`. |
+| `--pdf / --no-pdf` | | `--pdf` | Also write a PDF next to each HTML report (same name, `.pdf`). A PDF failure never loses the HTML; the run just exits with code 1. |
+| `--upload-to DEST` | | none | rclone destination (e.g. `gdrive:stt-transcripts`). Uploads the HTML and the PDF right after they are generated. Also read from `STT_UPLOAD_TO`. |
 
 Example:
 
@@ -171,7 +183,7 @@ The list file must exist before **any** `docker compose run`, even for commands 
 
 ### Uploading transcripts to Google Drive (unattended runs)
 
-With `--upload-to REMOTE:FOLDER` (or `STT_UPLOAD_TO` in `.env`), each HTML report is uploaded with [rclone](https://rclone.org/) **right after it is generated**, so you can start a long batch, go to sleep, and find the files in Drive. The local copy in `./transcripts` is always kept. A failed upload does not stop the batch; it is reported in the log and the command exits with code 1 at the end. rclone is bundled in both images.
+With `--upload-to REMOTE:FOLDER` (or `STT_UPLOAD_TO` in `.env`), each HTML report and its PDF are uploaded with [rclone](https://rclone.org/) **right after it is generated**, so you can start a long batch, go to sleep, and find the files in Drive. The local copy in `./transcripts` is always kept. A failed upload does not stop the batch; it is reported in the log and the command exits with code 1 at the end. rclone is bundled in both images.
 
 One-time setup (Drive needs a browser login, so authorise on a machine that has one). The target is a Drive folder you created in the web UI, so use the default `drive` scope: the narrower `drive.file` scope only sees files rclone created itself and cannot write into an existing folder. To contain the blast radius, pin the remote to that single folder with `root_folder_id`: rclone then cannot see anything outside it.
 
