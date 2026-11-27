@@ -5,6 +5,7 @@ It mimics the ``WhisperModel.transcribe`` interface: it returns ``(segments_iter
 torch and transformers are imported lazily because they are optional (``uv sync --extra gpu``).
 """
 
+import os
 from collections.abc import Iterator
 from types import SimpleNamespace
 
@@ -14,7 +15,8 @@ SAMPLE_RATE = 16000
 CHUNK_SECONDS = 30
 # The audio is fed to the pipeline in slices so progress can be reported between them.
 SLICE_SECONDS = 300
-BATCH_SIZE = 8
+# Chunks decoded at once (each with `beam_size` beams). Lower it if the GPU runs out of memory.
+BATCH_SIZE = int(os.environ.get("STT_BATCH_SIZE", "2"))
 
 
 class TransformersWhisperModel:

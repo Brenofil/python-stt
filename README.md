@@ -170,6 +170,8 @@ docker compose run --rm stt-cpu transcribe /data/media/file.mp4 --model small --
 docker compose run --rm stt-rocm transcribe /data/media/file.mp4 --engine transformers --model large-v3
 ```
 
+If the GPU runs out of memory (`HIP out of memory`, common on 8 GB cards with `large-v3`), lower the number of 30s chunks decoded at once with `STT_BATCH_SIZE` (default `2`; try `1`), for example in `.env`. You can also set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` to reduce fragmentation, or use `--model medium`.
+
 The image sets no `HSA_OVERRIDE_GFX_VERSION`: the PyTorch ROCm wheels include native kernels for the RX 7600 (gfx1102), and forcing a different version made the GPU crash with `HSA_STATUS_ERROR_INVALID_ISA`. Check your card is listed with `docker compose run --rm --entrypoint python stt-rocm -c "import torch; print(torch.cuda.get_arch_list())"`; only if it is not, pass `-e HSA_OVERRIDE_GFX_VERSION=<version>` at run time. The model cache lives in the `hf-cache` volume, and `HF_TOKEN` is read from `.env` when present. The container runs as root, so it can open the GPU devices without extra groups (named groups such as `render` do not exist inside the image, and listing them in compose makes Docker fail).
 
 **Batch mode** reads a list file that compose mounts read-only at `/data/urls.txt`. `urls.txt` is git-ignored: copy [`urls.example.txt`](urls.example.txt) to `urls.txt` and edit it. To keep the list outside the repository, set `URLS_FILE` (shell or `.env`) to its path on the host:
