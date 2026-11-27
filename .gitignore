@@ -224,3 +224,6 @@ __marimo__/
 
 # Personal list of media URLs (use urls.example.txt as a template)
 /urls.txt
+
+# rclone config holds Google Drive tokens
+/rclone-config/

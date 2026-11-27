@@ -170,3 +170,70 @@ def test_dotenv_is_loaded_without_overriding_shell(monkeypatch, tmp_path: Path):
     assert os.environ["HF_TOKEN"] == "from_file"
     assert os.environ["OTHER_VAR"] == "from_shell"
     monkeypatch.delenv("HF_TOKEN", raising=False)
+
+
+def _fake_rclone(monkeypatch, fail_upload: bool = False):
+    """Replace the rclone calls in the transcribe command; returns the list of uploads."""
+    from python_stt.commands import transcribe as cmd
+    from python_stt.core.uploader import UploadError
+
+    uploaded: list[tuple[str, str]] = []
+
+    def fake_upload(path, dest):
+        if fail_upload:
+            raise UploadError("boom")
+        uploaded.append((path.name, dest))
+        return f"{dest}/{path.name}"
+
+    monkeypatch.setattr(cmd, "check_destination", lambda dest: None)
+    monkeypatch.setattr(cmd, "upload_file", fake_upload)
+    return uploaded
+
+
+def test_batch_uploads_each_report_right_after_generation(monkeypatch, tmp_path: Path):
+    for name in ("a.mp4", "b.mp4"):
+        (tmp_path / name).write_bytes(b"dummy")
+    list_file = tmp_path / "list.txt"
+    list_file.write_text(f"{tmp_path / 'a.mp4'}\n{tmp_path / 'b.mp4'}\n", encoding="utf-8")
+    monkeypatch.setattr(Transcriber, "transcribe", MagicMock(return_value=_mock_result("x.mp4")))
+    uploaded = _fake_rclone(monkeypatch)
+
+    result = runner.invoke(
+        app,
+        ["transcribe", "-f", str(list_file), "-o", str(tmp_path / "out"), "--upload-to", "gd:dir"],
+    )
+
+    assert result.exit_code == 0
+    assert uploaded == [("a.html", "gd:dir"), ("b.html", "gd:dir")]
+
+
+def test_failed_upload_keeps_file_and_exits_nonzero(monkeypatch, tmp_path: Path):
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"dummy")
+    out = tmp_path / "v.html"
+    monkeypatch.setattr(Transcriber, "transcribe", MagicMock(return_value=_mock_result("v.mp4")))
+    _fake_rclone(monkeypatch, fail_upload=True)
+
+    result = runner.invoke(app, ["transcribe", str(video), "-o", str(out), "--upload-to", "gd:d"])
+
+    assert result.exit_code == 1
+    assert "Upload failed" in result.output
+    assert out.exists()
+
+
+def test_unreachable_upload_destination_aborts_before_loading_model(monkeypatch, tmp_path: Path):
+    from python_stt.commands import transcribe as cmd
+    from python_stt.core.uploader import UploadError
+
+    def bad_check(dest):
+        raise UploadError("no remote")
+
+    monkeypatch.setattr(cmd, "check_destination", bad_check)
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"dummy")
+
+    result = runner.invoke(app, ["transcribe", str(video), "--upload-to", "gd:d"])
+
+    assert result.exit_code == 1
+    assert "Cannot use upload destination" in result.output
+    Transcriber.load.assert_not_called()

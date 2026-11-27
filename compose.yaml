@@ -30,6 +30,7 @@ services:
         bind:
           create_host_path: false
       - hf-cache:/cache/hf
+      - ${RCLONE_CONFIG_DIR:-./rclone-config}:/config/rclone
 
   stt-cpu:
     build:
@@ -49,6 +50,7 @@ services:
         bind:
           create_host_path: false
       - hf-cache:/cache/hf
+      - ${RCLONE_CONFIG_DIR:-./rclone-config}:/config/rclone
 
 volumes:
   hf-cache:

@@ -22,6 +22,7 @@ from python_stt.core.downloader import is_url, resolve_media_source
 from python_stt.core.html_generator import generate_html_report
 from python_stt.core.models import TranscriptionResult
 from python_stt.core.transcriber import Transcriber
+from python_stt.core.uploader import UploadError, check_destination, upload_file
 
 DEFAULT_OUTPUT_DIR = "transcripts"
 
@@ -34,6 +35,7 @@ class _Outcome:
     name: str
     result: TranscriptionResult | None = None
     output_path: Path | None = None
+    upload_failed: bool = False
 
     @property
     def ok(self) -> bool:
@@ -117,6 +119,7 @@ def _process_source(
     used_outputs: set[Path],
     transcriber: Transcriber,
     language: str | None,
+    upload_to: str | None = None,
 ) -> _Outcome:
     """Transcribe one source. Errors are reported to stderr and returned, never raised."""
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -155,7 +158,18 @@ def _process_source(
             typer.secho(f"Transcription failed: {e}", fg=typer.colors.RED, err=True)
             return _Outcome(name=display_name)
 
-        return _Outcome(name=display_name, result=result, output_path=generated_file)
+        outcome = _Outcome(name=display_name, result=result, output_path=generated_file)
+        if upload_to:
+            # The report is uploaded right away so finished work is safe if a later item fails.
+            try:
+                remote = upload_file(generated_file, upload_to)
+                typer.echo(f"Uploaded to '{remote}'.")
+            except UploadError as e:
+                typer.secho(
+                    f"Upload failed (file kept locally): {e}", fg=typer.colors.RED, err=True
+                )
+                outcome.upload_failed = True
+        return outcome
 
 
 def _print_summary(outcomes: list[_Outcome]) -> None:
@@ -175,6 +189,9 @@ def _print_summary(outcomes: list[_Outcome]) -> None:
 
     succeeded = sum(o.ok for o in outcomes)
     typer.echo(f"{succeeded} succeeded, {len(outcomes) - succeeded} failed.")
+    upload_failures = sum(o.upload_failed for o in outcomes)
+    if upload_failures:
+        typer.secho(f"{upload_failures} upload(s) failed.", fg=typer.colors.RED)
 
 
 def transcribe(
@@ -249,6 +266,17 @@ def transcribe(
             ),
         ),
     ] = "faster-whisper",
+    upload_to: Annotated[
+        str | None,
+        typer.Option(
+            "--upload-to",
+            envvar="STT_UPLOAD_TO",
+            help=(
+                "rclone destination (e.g. 'gdrive:stt-transcripts'). Each HTML report is "
+                "uploaded right after it is generated. Requires rclone to be configured."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Transcribe audio/video from a local path, public URL, or a list file, into HTML reports."""
     if (source is None) == (input_file is None):
@@ -259,6 +287,15 @@ def transcribe(
     if not sources:
         typer.secho(f"No sources found in '{input_file}'.", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
+
+    if upload_to:
+        try:
+            check_destination(upload_to)
+        except UploadError as e:
+            typer.secho(
+                f"Cannot use upload destination '{upload_to}': {e}", fg=typer.colors.RED, err=True
+            )
+            raise typer.Exit(code=1) from e
 
     typer.echo(f"Loading Whisper model '{model}' on device '{device}' (engine: {engine})...")
     try:
@@ -279,17 +316,20 @@ def transcribe(
     for index, item in enumerate(sources, start=1):
         if batch:
             typer.echo(f"\n[{index}/{len(sources)}] {item}")
-        outcomes.append(_process_source(item, output, batch, used_outputs, transcriber, language))
+        outcomes.append(
+            _process_source(item, output, batch, used_outputs, transcriber, language, upload_to)
+        )
 
     if batch:
         _print_summary(outcomes)
-        if not all(o.ok for o in outcomes):
+        if not all(o.ok and not o.upload_failed for o in outcomes):
             raise typer.Exit(code=1)
         return
 
     outcome = outcomes[0]
     if outcome.result is None or outcome.output_path is None:
         raise typer.Exit(code=1)
+    upload_failed = outcome.upload_failed
 
     result = outcome.result
     typer.secho(
@@ -300,3 +340,5 @@ def transcribe(
         f"  - HTML Output: {outcome.output_path.resolve()}",
         fg=typer.colors.GREEN,
     )
+    if upload_failed:
+        raise typer.Exit(code=1)

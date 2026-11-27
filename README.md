@@ -123,6 +123,7 @@ All transcripts are saved to `transcripts/` (or the directory given with `--outp
 | `--device NAME` | | `auto` | `auto`, `cpu` or `cuda`. |
 | `--compute-type TYPE` | | `default` | `default`, `int8`, `float16` or `float32`. |
 | `--engine NAME` | | `faster-whisper` | `faster-whisper` (CPU/NVIDIA) or `transformers` (PyTorch, for AMD GPUs via ROCm). |
+| `--upload-to DEST` | | none | rclone destination (e.g. `gdrive:stt-transcripts`). Uploads each report right after it is generated. Also read from `STT_UPLOAD_TO`. |
 
 Example:
 
@@ -167,6 +168,43 @@ docker compose run --rm stt-rocm transcribe --input-file /data/urls.txt --engine
 ```
 
 Make sure the file exists before running. Compose is configured not to create it, but behaviour for a missing bind source can vary between Docker versions.
+
+### Uploading transcripts to Google Drive (unattended runs)
+
+With `--upload-to REMOTE:FOLDER` (or `STT_UPLOAD_TO` in `.env`), each HTML report is uploaded with [rclone](https://rclone.org/) **right after it is generated**, so you can start a long batch, go to sleep, and find the files in Drive. The local copy in `./transcripts` is always kept. A failed upload does not stop the batch; it is reported in the log and the command exits with code 1 at the end. rclone is bundled in both images.
+
+One-time setup (Drive needs a browser login, so authorise on a machine that has one). The target is a Drive folder you created in the web UI, so use the default `drive` scope: the narrower `drive.file` scope only sees files rclone created itself and cannot write into an existing folder. To contain the blast radius, pin the remote to that single folder with `root_folder_id`: rclone then cannot see anything outside it.
+
+```bash
+# 1. On a machine with a browser, run `rclone config` and create a remote named "gdrive":
+#      Storage: drive      Scope: 1 (full access)
+#      root_folder_id: <the ID at the end of the folder URL, after /folders/>
+#    The folder ID is the last part of https://drive.google.com/drive/folders/<ID>.
+# 2. Copy the resulting rclone.conf (path: `rclone config file`) to the server:
+mkdir -p rclone-config && chmod 700 rclone-config
+scp laptop:~/.config/rclone/rclone.conf rclone-config/ && chmod 600 rclone-config/rclone.conf
+```
+
+With `root_folder_id` set, the destination is relative to that folder, so use `--upload-to gdrive:` (the folder itself) or `gdrive:subfolder`.
+
+`rclone-config/` is git-ignored and mounted into the container. Set `RCLONE_CONFIG_DIR` to use another host folder. The config holds a Drive token, so treat it like a password.
+
+Run it (the destination is checked before the model loads, so a misconfigured remote fails in seconds, not after hours):
+
+```bash
+docker compose run --rm stt-rocm transcribe --input-file /data/urls.txt \
+  --engine transformers --model large-v3 --language pt --upload-to gdrive:stt-transcripts
+```
+
+To survive an SSH disconnect, start it detached and follow the log:
+
+```bash
+docker compose run -d --rm --name stt-batch stt-rocm transcribe --input-file /data/urls.txt \
+  --engine transformers --model large-v3 --upload-to gdrive:stt-transcripts
+docker logs -f stt-batch
+```
+
+---
 
 To use the `transformers` engine outside Docker: install a PyTorch build for your hardware, then `uv sync --extra gpu`.
 
