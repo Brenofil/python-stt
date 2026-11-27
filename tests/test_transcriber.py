@@ -41,3 +41,19 @@ def test_transformers_engine_without_extras_gives_clear_error(monkeypatch):
     transcriber = Transcriber(engine="transformers")
     with pytest.raises(RuntimeError, match="uv sync --extra gpu"):
         transcriber.load()
+
+
+def test_audio_decoding_works_with_installed_av(tmp_path: Path):
+    """Regression: faster-whisper's decoder must work with the installed PyAV version."""
+    import wave
+
+    from faster_whisper import decode_audio
+
+    wav = tmp_path / "silence.wav"
+    with wave.open(str(wav), "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(16000)
+        f.writeframes(b"\x00\x00" * 16000)
+
+    assert len(decode_audio(str(wav))) == 16000
