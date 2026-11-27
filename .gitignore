@@ -221,3 +221,6 @@ __marimo__/
 
 # Generated transcripts (default output of `stt transcribe`)
 /transcripts/
+
+# Personal list of media URLs (use urls.example.txt as a template)
+/urls.txt

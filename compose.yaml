@@ -1,7 +1,8 @@
 # Usage (from the project root):
 #   docker compose run --rm stt-rocm transcribe /data/media/file.mp4 --engine transformers --model large-v3
 #   docker compose run --rm stt-cpu  transcribe /data/media/file.mp4 --model small --compute-type int8
-# Put input files in ./media; transcripts are written to ./transcripts.
+#   docker compose run --rm stt-rocm transcribe --input-file /data/urls.txt --engine transformers --model large-v3
+# Put input files in ./media; transcripts are written to ./transcripts. The list file (URLS_FILE, default ./urls.txt) is mounted read-only.
 services:
   stt-rocm:
     build:
@@ -22,6 +23,12 @@ services:
     volumes:
       - ./media:/data/media
       - ./transcripts:/data/transcripts
+      - type: bind
+        source: ${URLS_FILE:-./urls.txt}
+        target: /data/urls.txt
+        read_only: true
+        bind:
+          create_host_path: false
       - hf-cache:/cache/hf
 
   stt-cpu:
@@ -35,6 +42,12 @@ services:
     volumes:
       - ./media:/data/media
       - ./transcripts:/data/transcripts
+      - type: bind
+        source: ${URLS_FILE:-./urls.txt}
+        target: /data/urls.txt
+        read_only: true
+        bind:
+          create_host_path: false
       - hf-cache:/cache/hf
 
 volumes:

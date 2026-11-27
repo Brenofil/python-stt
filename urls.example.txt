@@ -1,0 +1,9 @@
+# Copy to urls.txt (git-ignored) and list one file path or URL per line.
+# Blank lines and lines starting with '#' are ignored.
+# Google Drive files must be shared as "Anyone with the link".
+
+# lecture 1
+https://drive.google.com/file/d/<FILE_ID>/view?usp=sharing
+
+# lecture 2
+https://example.com/video.mp4

@@ -159,6 +159,15 @@ docker compose run --rm stt-rocm transcribe /data/media/file.mp4 --engine transf
 
 `Dockerfile.rocm` sets `HSA_OVERRIDE_GFX_VERSION=11.0.0` so the RX 7600 (gfx1102) uses the gfx1100 kernels. It is a safety net, so remove it if your GPU is detected without it. The model cache lives in the `hf-cache` volume, and `HF_TOKEN` is read from `.env` when present. The user running Docker must have access to `/dev/kfd` and `/dev/dri` (groups `video` and `render`).
 
+**Batch mode** reads a list file that compose mounts read-only at `/data/urls.txt`. `urls.txt` is git-ignored: copy [`urls.example.txt`](urls.example.txt) to `urls.txt` and edit it. To keep the list outside the repository, set `URLS_FILE` (shell or `.env`) to its path on the host:
+
+```bash
+cp urls.example.txt urls.txt           # or: export URLS_FILE=/home/you/private/urls.txt
+docker compose run --rm stt-rocm transcribe --input-file /data/urls.txt --engine transformers --model large-v3 --language pt
+```
+
+Make sure the file exists before running. Compose is configured not to create it, but behaviour for a missing bind source can vary between Docker versions.
+
 To use the `transformers` engine outside Docker: install a PyTorch build for your hardware, then `uv sync --extra gpu`.
 
 ## Development
